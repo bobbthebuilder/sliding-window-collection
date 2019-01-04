@@ -1,6 +1,6 @@
 // The MIT License (MIT)
 
-// Copyright (c) 2018 Daniel Feist
+// Copyright (c) 2018-2019 Daniel Feist
 
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -20,6 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+#include <list>
 #include <vector>
 #include <memory>
 #include <iostream>
@@ -28,13 +29,12 @@
 namespace sliding_window_collection
 {
 
-class SimpleSort
+class SortAndReplace
 {
 public:
-    SimpleSort(const std::shared_ptr<std::vector<double>> input, const typename std::vector<double>::size_type window)
+    SortAndReplace(const std::shared_ptr<std::vector<double>> input, const typename std::vector<double>::size_type window)
     : data(std::move(input))
     , window(window)
-    , sorter(window)
     , index(data->begin())
     , is_sorted(false)
     {
@@ -70,18 +70,52 @@ public:
         {
             step();
         }
-        return sorter;
+        is_sorted = true;
+
+        std::vector<double> result;
+        result.reserve(window);
+        std::transform(sorter.begin(), sorter.end(), std::back_inserter(result), [](const auto& e){return e.second;});
+        return result;
     }
 private:
     void step()
     {
-        std::copy_n(index, window, sorter.begin());
-        std::sort(sorter.begin(), sorter.end(), std::less<double>());
-        is_sorted = true;
+        auto add = [this]()
+        {
+            for (auto it = data->begin(); it != std::next(data->begin(), window); ++it)
+            {
+                sorter.emplace_back(std::make_pair(std::distance(data->begin(), it), *it));
+            }
+            sorter.sort([](const auto& lhs, const auto& rhs){return lhs.second <= rhs.second;});
+        };
+        auto replace = [this]()
+        {
+            const auto position {std::distance(data->begin(), std::prev(index))};
+            auto to_remove = std::find_if(sorter.begin(), sorter.end(), [position](auto e){return e.first == position;});
+            if (to_remove == sorter.end())
+            {
+                throw std::runtime_error("Unexpected error.");
+            }
+            sorter.erase(to_remove);
+
+            auto new_element {std::next(std::prev(index), window)};
+            auto to_insert {std::make_pair(std::distance(data->begin(), new_element), *new_element)};
+            auto first_greater = std::find_if(sorter.begin(), sorter.end(), [to_insert](auto e){return e.second >= to_insert.second;});
+            sorter.emplace(first_greater, to_insert);
+        };
+
+        if (index == data->begin())
+        {
+            add();
+            return;
+        }
+
+        replace();
     }
+
     std::shared_ptr<std::vector<double>> data = nullptr;
     const std::vector<double>::size_type window;
-    std::vector<double> sorter;
+    std::list<std::pair<int, double>> sorter;
     std::vector<double>::iterator index;
     bool is_sorted;
 };
